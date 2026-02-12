@@ -1,0 +1,86 @@
+# ──────────────────────────────────────────────────────────────
+# RPG Maker Translator — Python Dependencies
+# ──────────────────────────────────────────────────────────────
+# Install everything:   pip install -r requirements.txt
+# Minimal (text only):  pip install deep-translator python-dotenv
+# ──────────────────────────────────────────────────────────────
+
+# === Core (required) ======================================================
+
+# Free Google Translate backend
+deep-translator>=1.11.4
+
+# .env file support (API keys, config)
+python-dotenv>=0.19.0
+
+# === Image processing (for image translation) =============================
+
+Pillow>=9.0.0           # Image manipulation & text rendering
+opencv-python>=4.5.0    # Inpainting & image I/O
+numpy>=1.20.0           # Array operations
+
+# === OCR ==================================================================
+
+# EasyOCR — multi-language OCR, GPU-accelerated
+# First run downloads models (~100-200 MB per language)
+easyocr>=1.6.0
+
+# === PyTorch (required by EasyOCR) ========================================
+
+# CPU version (default):
+torch>=1.9.0
+torchvision>=0.10.0
+
+# ── GPU (NVIDIA CUDA) — much faster OCR ──
+# Uninstall CPU torch first, then install the CUDA build:
+#
+#   pip uninstall torch torchvision
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+# Verify:  python -c "import torch; print(torch.cuda.is_available())"
+
+# === Optional: Premium translation ========================================
+
+# DeepL — higher quality, requires free API key from https://www.deepl.com
+# deepl>=1.16.0
+
+# === Optional: Offline unlimited translation ==============================
+
+# MarianMT — free, offline, GPU-accelerated, no API key needed
+# transformers>=4.30.0
+# sentencepiece>=0.1.97
+
+# === Optional: Better OCR for Japanese ====================================
+
+# Manga OCR — specialised for manga / visual novel text
+# manga-ocr>=0.1.8
+
+# === Optional: AI inpainting ==============================================
+
+# LaMa — better text removal quality
+# simple-lama-inpainting>=0.1.2
+
+# ──────────────────────────────────────────────────────────────
+# Quick-install profiles
+# ──────────────────────────────────────────────────────────────
+#
+# TEXT ONLY (smallest):
+#   pip install deep-translator python-dotenv
+#
+# STANDARD (text + images, CPU):
+#   pip install -r requirements.txt
+#
+# OFFLINE / MARIANMT (unlimited, no API):
+#   pip install transformers sentencepiece torch
+#
+# GPU (fastest — CUDA 12.1):
+#   pip install deep-translator python-dotenv Pillow opencv-python numpy easyocr
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+# ──────────────────────────────────────────────────────────────
+# System requirements
+# ──────────────────────────────────────────────────────────────
+#
+# Minimum:    Python 3.8+, 4 GB RAM
+# Recommended: Python 3.10+, 8 GB RAM, NVIDIA GPU with 4 GB+ VRAM
+# ──────────────────────────────────────────────────────────────
