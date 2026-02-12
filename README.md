@@ -42,10 +42,11 @@ That's it. The tool auto-detects the game engine (MV or MZ), extracts all dialog
 |---|---|
 | **One-command translation** | `python main.py /path/to/game` handles everything |
 | **100% free** | Google Translate by default — no API keys needed |
+| **Offline mode** | MarianMT backend — no internet, no API key, no limits |
 | **Text translation** | Dialogue, choices, menus, skills, items, system messages, … |
 | **Image translation** | OCR → inpaint → re-render translated text on game images |
 | **Encrypted image support** | Decrypts `.rpgmvp` files, translates, re-encrypts seamlessly |
-| **GPU acceleration** | Auto-detects CUDA for faster OCR (CPU works too) |
+| **GPU acceleration** | Auto-detects CUDA for faster OCR and MarianMT inference |
 | **MV & MZ support** | Handles both RPG Maker MV and MZ folder structures |
 | **Plugin patching** | Fixes known issues (e.g. LL_GalgeChoiceWindowMV space bug) |
 | **Word wrap** | Auto-generates a JS plugin to prevent text overflow |
@@ -78,6 +79,15 @@ pip install -r requirements.txt
 ```bash
 pip install deep-translator python-dotenv
 ```
+
+### Offline / MarianMT Install (no internet needed after setup)
+
+```bash
+# Installs the Helsinki-NLP MarianMT models via Hugging Face
+pip install deep-translator python-dotenv transformers sentencepiece torch
+```
+
+The first run downloads the translation model (~300 MB). After that, translation works fully offline with no API key and no rate limits.
 
 ### GPU Install (fastest for images)
 
@@ -146,10 +156,19 @@ export DEEPL_API_KEY=YOUR_KEY
 python main.py /path/to/game --backend deepl
 ```
 
+### Use MarianMT (offline, unlimited)
+
+```bash
+# No API key, no internet (after first model download)
+python main.py /path/to/game --backend marian
+```
+
+MarianMT uses Helsinki-NLP models via Hugging Face. Dependencies (`transformers`, `sentencepiece`) are auto-installed on first use if missing. GPU is used automatically when available.
+
 ### All options
 
 ```
-usage: main.py game_path [-s SOURCE] [-t TARGET] [-b {google,deepl}]
+usage: main.py game_path [-s SOURCE] [-t TARGET] [-b {google,deepl,marian}]
                          [--api-key KEY] [--export-only] [--import-csv]
                          [--no-images] [--no-backup] [--no-patch]
                          [--no-wordwrap] [--no-replace-images]
@@ -188,7 +207,7 @@ usage: main.py game_path [-s SOURCE] [-t TARGET] [-b {google,deepl}]
 
 ```
 main.py                        CLI entry point & pipeline orchestrator
-rpgmaker_translator.py         Text extraction, translation, application
+rpgmaker_translator.py         Text extraction, translation backends (Google/DeepL/MarianMT), application
 rpgmaker_image_translator.py   Image OCR, inpainting, text rendering
 rpgmv_crypto.py                .rpgmvp encryption / decryption
 apply_translated_images.py     Standalone image apply / restore utility
@@ -247,12 +266,15 @@ Images are only modified when OCR detects actual CJK text (strict validation pre
 
 ## Translation Backends
 
-| Backend | Cost | Quality | Speed | Setup |
-|---|---|---|---|---|
-| **Google** (default) | Free | Good | ~50 strings/sec | None |
-| **DeepL** | Free tier / Paid | Excellent | ~100 strings/sec | API key |
+| Backend | Cost | Quality | Speed | Setup | Internet |
+|---|---|---|---|---|---|
+| **Google** (default) | Free | Good | ~50 strings/sec | None | Required |
+| **DeepL** | Free tier / Paid | Excellent | ~100 strings/sec | API key | Required |
+| **MarianMT** | Free | Good | ~30-80 strings/sec | Auto-install | Offline |
 
-Google Translate is the default because it requires zero setup and handles all supported languages well. For the highest translation quality, [get a free DeepL API key](https://www.deepl.com/pro-api) and use `--backend deepl`.
+- **Google Translate** is the default — zero setup and handles all supported languages well.
+- **DeepL** offers the highest translation quality — [get a free API key](https://www.deepl.com/pro-api) and use `--backend deepl`.
+- **MarianMT** runs entirely locally with no API key and no rate limits — ideal for large games or restricted environments. Uses GPU automatically when available. First run downloads the model (~300 MB); after that, no internet needed.
 
 ---
 
@@ -323,7 +345,14 @@ The tool auto-detects GPU and uses it for OCR. No flags needed.
 <details>
 <summary><strong>Can I translate to/from any language?</strong></summary>
 
-Google Translate supports 100+ languages. Common pairs: ja, en, zh, ko, es, fr, de, pt, ru, it, ar, th, vi. DeepL supports 30+ languages with higher quality.
+Google Translate supports 100+ languages. Common pairs: ja, en, zh, ko, es, fr, de, pt, ru, it, ar, th, vi. DeepL supports 30+ languages with higher quality. MarianMT supports 100+ language pairs via Helsinki-NLP models (coverage varies by pair).
+
+</details>
+
+<details>
+<summary><strong>Can I translate without internet?</strong></summary>
+
+Yes! Use the MarianMT backend: `python main.py /path/to/game --backend marian`. The first run downloads the translation model, but after that everything works fully offline.
 
 </details>
 
