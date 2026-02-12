@@ -69,7 +69,7 @@ That's it. The tool auto-detects the game engine (MV or MZ), extracts all dialog
 ### Standard Install (text + images)
 
 ```bash
-git clone https://github.com/Meganano/RPGMakerTranslator.git
+git clone https://github.com/JaimeDevCode/RPGMakerTranslator.git
 cd RPGMakerTranslator
 pip install -r requirements.txt
 ```
@@ -371,7 +371,7 @@ Contributions welcome! Please:
 ### Development Setup
 
 ```bash
-git clone https://github.com/Meganano/RPGMakerTranslator.git
+git clone https://github.com/JaimeDevCode/RPGMakerTranslator.git
 cd RPGMakerTranslator
 pip install -r requirements.txt
 ```
@@ -385,5 +385,5 @@ pip install -r requirements.txt
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/Meganano">Meganano</a>
+  Made with ❤️ by <a href="https://github.com/JaimeDevCode">JaimeDevCode</a>
 </p>
