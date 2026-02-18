@@ -1244,8 +1244,27 @@ class RPGMakerTranslator:
 
     def extract(self) -> TranslationProject:
         """Step 1 – Extract all translatable text from the game."""
+        old_project = self.project  # may contain translations from a previous run
         self.project = TextExtractor(str(self.game_path), self.source_lang).extract_all()
         self.project.target_lang = self.target_lang
+
+        # Merge previously saved translations so we don't lose progress.
+        if old_project and old_project.entries:
+            old_map: Dict[str, TranslationEntry] = {
+                e.hash: e for e in old_project.entries if e.translated
+            }
+            if old_map:
+                merged = 0
+                for entry in self.project.entries:
+                    prev = old_map.get(entry.hash)
+                    if prev and not entry.translated:
+                        entry.translated = prev.translated
+                        merged += 1
+                if merged:
+                    logger.info(
+                        "Merged %d existing translations from previous run", merged,
+                    )
+
         self._save()
         return self.project
 
