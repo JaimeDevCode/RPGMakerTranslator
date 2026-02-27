@@ -67,7 +67,10 @@ class TranslationConfig:
     verbose: bool = False
     patch_plugins: bool = True
     enable_word_wrap: bool = True
+    enable_crash_logger: bool = True
     replace_images: bool = True
+    apply_only: bool = False
+    glossary_path: Optional[str] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -192,8 +195,11 @@ class TranslationPipeline:
                 target_lang=self.config.target_lang,
                 backend=self.config.backend,
                 api_key=self.config.api_key,
+                glossary_path=self.config.glossary_path,
             )
             logger.info("Text translator ready  (%s)", self._text.backend.name)
+            if self._text.glossary.size:
+                logger.info("  Glossary: %d terms loaded", self._text.glossary.size)
         except ImportError as exc:
             logger.error("Failed to import text translator: %s", exc)
 
@@ -247,7 +253,7 @@ class TranslationPipeline:
         if self.config.patch_plugins:
             logger.info("")
             logger.info("STEP 2 / 5 — Patching plugins …")
-            for name, ok in self._text.patch_plugins().items():
+            for name, ok in self._text.patch_plugins(crash_logger=self.config.enable_crash_logger).items():
                 logger.info("  %s %s", "OK" if ok else "--", name)
 
         # Step 3: Translate text
@@ -355,6 +361,9 @@ class TranslationPipeline:
                         s.get("translated_entries", 0),
                         s.get("total_entries", 0),
                         s.get("progress_percent", 0))
+            glossary_count = s.get("glossary_terms", 0)
+            if glossary_count:
+                logger.info("  Glossary: %d terms", glossary_count)
         logger.info("  Output: %s", self.output)
         logger.info("")
         logger.info("  Test your game thoroughly after translation!")
@@ -380,6 +389,12 @@ examples:
   python main.py /path/to/game --import-csv       # apply edited CSV
   python main.py /path/to/game --backend deepl --api-key KEY
   python main.py /path/to/game --backend marian   # offline, unlimited
+
+glossary management:
+  python main.py /path/to/game --glossary my_glossary.json
+  python main.py /path/to/game --build-glossary   # build from existing translations
+  python main.py /path/to/game --export-glossary  # export glossary to CSV
+  python main.py /path/to/game --import-glossary glossary.csv
 
 supported languages:
   ja (Japanese), en (English), zh (Chinese), ko (Korean),
@@ -411,8 +426,20 @@ supported languages:
                         help="Don't patch JS plugins")
     parser.add_argument("--no-wordwrap", action="store_true",
                         help="Don't inject word-wrap plugin")
+    parser.add_argument("--no-crashlogger", action="store_true",
+                        help="Don't install the CrashLogger plugin")
+    parser.add_argument("--apply-only", action="store_true",
+                        help="Skip extraction/translation; only apply existing translations")
     parser.add_argument("--no-replace-images", action="store_true",
                         help="Keep translated images in output folder only")
+    parser.add_argument("--glossary",
+                        help="Path to glossary JSON file (default: translation_project/glossary.json)")
+    parser.add_argument("--build-glossary", action="store_true",
+                        help="Build glossary from existing translated entries")
+    parser.add_argument("--export-glossary", action="store_true",
+                        help="Export glossary to CSV for editing")
+    parser.add_argument("--import-glossary",
+                        help="Import glossary terms from a CSV file")
     parser.add_argument("--batch-size", type=int, default=50,
                         help="Strings per translation batch (default: 50)")
     parser.add_argument("--delay", type=float, default=0.5,
@@ -441,8 +468,73 @@ supported languages:
         verbose=args.verbose,
         patch_plugins=not args.no_patch,
         enable_word_wrap=not args.no_wordwrap,
+        enable_crash_logger=not args.no_crashlogger,
+        apply_only=getattr(args, 'apply_only', False),
         replace_images=not args.no_replace_images,
+        glossary_path=args.glossary,
     )
+
+    # -- Glossary management modes -------------------------------------------
+    if args.build_glossary or args.export_glossary or args.import_glossary:
+        try:
+            from rpgmaker_translator import RPGMakerTranslator
+
+            translator = RPGMakerTranslator(
+                game_path=args.game_path,
+                source_lang=args.source,
+                target_lang=args.target,
+                backend=args.backend,
+                api_key=args.api_key,
+                glossary_path=args.glossary,
+            )
+            if args.import_glossary:
+                count = translator.import_glossary_csv(args.import_glossary)
+                logger.info("Imported %d glossary terms", count)
+            if args.build_glossary:
+                count = translator.build_glossary_from_project()
+                logger.info("Built glossary with %d new terms", count)
+            if args.export_glossary:
+                path = translator.export_glossary_csv()
+                logger.info("Glossary exported to %s", path)
+            return 0
+        except Exception as exc:
+            logger.error("Glossary operation failed: %s", exc)
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            return 1
+
+    # -- apply-only mode ----------------------------------------------------
+    if args.apply_only:
+        try:
+            from rpgmaker_translator import RPGMakerTranslator
+
+            translator = RPGMakerTranslator(
+                game_path=args.game_path,
+                source_lang=args.source,
+                target_lang=args.target,
+                backend=args.backend,
+                api_key=args.api_key,
+                glossary_path=args.glossary,
+            )
+            # Load existing project (must already exist).
+            translator.extract()
+            if not args.no_patch:
+                crash_logger = not getattr(args, 'no_crashlogger', False)
+                for name, ok in translator.patch_plugins(crash_logger=crash_logger).items():
+                    logger.info("  %s %s", "OK" if ok else "--", name)
+            translator.apply(
+                backup=not args.no_backup,
+                wordwrap=not args.no_wordwrap,
+            )
+            logger.info("Translations applied (apply-only mode)")
+            return 0
+        except Exception as exc:
+            logger.error("Apply-only failed: %s", exc)
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            return 1
 
     # -- CSV import mode -----------------------------------------------------
     if args.import_csv:
@@ -455,6 +547,7 @@ supported languages:
                 target_lang=args.target,
                 backend=args.backend,
                 api_key=args.api_key,
+                glossary_path=args.glossary,
             )
             translator.import_csv()
             translator.apply(

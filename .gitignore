@@ -30,7 +30,7 @@ Desktop.ini
 
 # ── Copilot knowledge base (local only) ─────────────────────
 .github/copilot-instructions.md
-
+.github/knowledge_base.json
 # ── PyTorch / HuggingFace model cache ────────────────────────
 *.pt
 *.bin

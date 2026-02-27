@@ -49,6 +49,8 @@ That's it. The tool auto-detects the game engine (MV or MZ), extracts all dialog
 | **GPU acceleration** | Auto-detects CUDA for faster OCR and MarianMT inference |
 | **MV & MZ support** | Handles both RPG Maker MV and MZ folder structures |
 | **Plugin patching** | Fixes known issues (e.g. LL_GalgeChoiceWindowMV space bug) |
+| **Live2D compatibility** | Null-guard + DRM bypass for enc_lv2d.js Live2D plugin |
+| **Crash logger** | Optional JS plugin that captures runtime errors to `crash_log.txt` |
 | **Word wrap** | Auto-generates a JS plugin to prevent text overflow |
 | **Escape code safety** | Preserves `\V[n]`, `\C[n]`, `\N[n]`, `\I[n]` etc. during translation |
 | **Resume support** | Interrupted? Just re-run — progress is auto-saved |
@@ -171,9 +173,20 @@ MarianMT uses Helsinki-NLP models via Hugging Face. Dependencies (`transformers`
 usage: main.py game_path [-s SOURCE] [-t TARGET] [-b {google,deepl,marian}]
                          [--api-key KEY] [--export-only] [--import-csv]
                          [--no-images] [--no-backup] [--no-patch]
-                         [--no-wordwrap] [--no-replace-images]
+                         [--no-wordwrap] [--no-crashlogger]
+                         [--no-replace-images]
                          [--batch-size N] [--delay SECS] [-o DIR] [-v]
 ```
+
+| Flag | Description |
+|---|---|
+| `--no-images` | Skip image translation |
+| `--no-backup` | Don't create backups |
+| `--no-patch` | Don't patch JS plugins |
+| `--no-wordwrap` | Don't inject word-wrap plugin |
+| `--no-crashlogger` | Don't install the CrashLogger plugin |
+| `--no-replace-images` | Keep translated images in output folder only |
+| `-v, --verbose` | Debug-level logging |
 
 ---
 
@@ -211,6 +224,9 @@ rpgmaker_translator.py         Text extraction, translation backends (Google/Dee
 rpgmaker_image_translator.py   Image OCR, inpainting, text rendering
 rpgmv_crypto.py                .rpgmvp encryption / decryption
 apply_translated_images.py     Standalone image apply / restore utility
+plugins/                       JS plugins deployed to games at translation time
+  TranslationLive2dFix.js      Null-guard + DRM bypass for enc_lv2d.js
+  TranslationCrashLogger.js    Runtime error logging to crash_log.txt
 ```
 
 ### Output Structure
@@ -260,6 +276,7 @@ Images are only modified when OCR detects actual CJK text (strict validation pre
 | Plugin | Support |
 |---|---|
 | LL_GalgeChoiceWindowMV | Full (choices + text + auto-patch) |
+| enc_lv2d.js (Live2D) | Null-guard + DRM bypass via TranslationLive2dFix.js |
 | Generic MV plugins | Text/message sub-commands |
 
 ---
