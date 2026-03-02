@@ -55,6 +55,9 @@ That's it. The tool auto-detects the game engine (MV or MZ), extracts all dialog
 | **Escape code safety** | Preserves `\V[n]`, `\C[n]`, `\N[n]`, `\I[n]` etc. during translation |
 | **Resume support** | Interrupted? Just re-run — progress is auto-saved |
 | **CSV export/import** | Edit translations manually, then re-apply |
+| **Hendrix_Localization** | Export to `game_messages.csv` for non-destructive runtime translation |
+| **Show Picture / Movie** | Extracts picture & movie filenames for per-language asset swapping |
+| **Multi-line context** | Groups dialog lines for more coherent machine translations |
 | **Full backup** | Original files backed up before any modification |
 | **DeepL (optional)** | Premium backend for higher-quality translations |
 
@@ -147,6 +150,20 @@ python main.py /path/to/game --export-only
 python main.py /path/to/game --import-csv
 ```
 
+### Export Hendrix_Localization CSV (non-destructive)
+
+Games that use the [Hendrix_Localization](https://sanghendrix.itch.io/) plugin can be translated without modifying any game files.  The plugin reads a `game_messages.csv` at runtime and swaps all text on the fly.
+
+```bash
+# Generate game_messages.csv in the game's www/ folder
+python main.py /path/to/game --hendrix-csv
+
+# With full translation first (translate, then export Hendrix CSV)
+python main.py /path/to/game --hendrix-csv -s ja -t en
+```
+
+If the game already has `Hendrix_Localization.js` installed, the tool detects it automatically and places the CSV in the right location.  Otherwise, you can install the plugin manually and drop the CSV next to `index.html`.
+
 ### Use DeepL (premium, higher quality)
 
 ```bash
@@ -172,6 +189,7 @@ MarianMT uses Helsinki-NLP models via Hugging Face. Dependencies (`transformers`
 ```
 usage: main.py game_path [-s SOURCE] [-t TARGET] [-b {google,deepl,marian}]
                          [--api-key KEY] [--export-only] [--import-csv]
+                         [--hendrix-csv]
                          [--no-images] [--no-backup] [--no-patch]
                          [--no-wordwrap] [--no-crashlogger]
                          [--no-replace-images]
@@ -180,6 +198,7 @@ usage: main.py game_path [-s SOURCE] [-t TARGET] [-b {google,deepl,marian}]
 
 | Flag | Description |
 |---|---|
+| `--hendrix-csv` | Export as Hendrix_Localization `game_messages.csv` (non-destructive) |
 | `--no-images` | Skip image translation |
 | `--no-backup` | Don't create backups |
 | `--no-patch` | Don't patch JS plugins |
@@ -260,6 +279,8 @@ GameFolder/
 | States.json | Name, messages |
 | System.json | Game title, currency, terms, battle messages |
 | CommonEvents / Troops | Event commands |
+| Show Picture (code 231) | Picture filenames for per-language image swapping |
+| Play Movie (code 261) | Movie filenames for per-language video swapping |
 
 ### Images
 
@@ -277,6 +298,7 @@ Images are only modified when OCR detects actual CJK text (strict validation pre
 |---|---|
 | LL_GalgeChoiceWindowMV | Full (choices + text + auto-patch) |
 | enc_lv2d.js (Live2D) | Null-guard + DRM bypass via TranslationLive2dFix.js |
+| Hendrix_Localization | Detection + `game_messages.csv` export for non-destructive translation |
 | Generic MV plugins | Text/message sub-commands |
 
 ---
@@ -324,6 +346,13 @@ Depends on game size. A typical 10-hour RPG with ~5,000 text entries:
 <summary><strong>Can I edit translations before applying?</strong></summary>
 
 Yes! Use `--export-only` to generate a CSV, edit it in any spreadsheet editor, then `--import-csv` to apply your changes.
+
+</details>
+
+<details>
+<summary><strong>Can I translate without modifying game files?</strong></summary>
+
+Yes! Use `--hendrix-csv` to export translations in the Hendrix_Localization format. This creates a `game_messages.csv` that the Hendrix plugin reads at runtime — the original game data stays completely untouched. Ideal for distribution alongside the original game.
 
 </details>
 

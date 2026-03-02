@@ -1270,6 +1270,9 @@ class TextExtractor:
         comment_start_idx: int = 0
         script_buffer: List[str] = []      # accumulates 355+655 lines
         script_start_idx: int = 0
+        # Track multi-line message groups (code 101+401*) so each 401
+        # line entry gets a context annotation showing the full message.
+        msg_group_indices: List[int] = []  # cmd indices of 401 lines in current message
 
         def _flush_comments() -> None:
             nonlocal comment_buffer
@@ -1324,6 +1327,12 @@ class TextExtractor:
 
             if code == 101:
                 # Show Text header – detect face, extract speaker name.
+                # Flush the previous message group's context.
+                if msg_group_indices:
+                    self._annotate_message_group(
+                        event_list, msg_group_indices, file, base_path, context,
+                    )
+                msg_group_indices = []
                 has_face = bool(params[0]) if params else False
                 if len(params) > 4 and params[4] and self._should_translate(params[4]):
                     self._add(
@@ -1333,6 +1342,7 @@ class TextExtractor:
 
             elif code == 401 and params and isinstance(params[0], str):
                 # Text continuation line.
+                msg_group_indices.append(i)
                 self._extract_escape_text(
                     params[0], file,
                     f"{base_path}[{i}].parameters[0]",
@@ -1370,6 +1380,26 @@ class TextExtractor:
                         params[1], context, max_chars=20,
                     )
 
+            elif code == 231 and len(params) > 1 and isinstance(params[1], str):
+                # Show Picture – extract the picture filename for localisation.
+                pic_name = params[1]
+                if pic_name and self._should_translate(pic_name):
+                    self._add(
+                        file, f"{base_path}[{i}].parameters[1]",
+                        pic_name, f"{context} - Show Picture",
+                        "picture", max_chars=80,
+                    )
+
+            elif code == 261 and params and isinstance(params[0], str):
+                # Play Movie – extract the movie filename for localisation.
+                movie_name = params[0]
+                if movie_name and self._should_translate(movie_name):
+                    self._add(
+                        file, f"{base_path}[{i}].parameters[0]",
+                        movie_name, f"{context} - Play Movie",
+                        "movie", max_chars=80,
+                    )
+
             elif code == 356 and params and isinstance(params[0], str):
                 # MV plugin command.
                 self._parse_plugin_command_mv(
@@ -1405,6 +1435,50 @@ class TextExtractor:
         # Flush any remaining buffered comments/scripts at end of list.
         _flush_comments()
         _flush_scripts()
+
+        # Flush the final message group.
+        if msg_group_indices:
+            self._annotate_message_group(
+                event_list, msg_group_indices, file, base_path, context,
+            )
+
+    def _annotate_message_group(
+        self,
+        event_list: list,
+        indices: List[int],
+        file: str,
+        base_path: str,
+        context: str,
+    ) -> None:
+        """Annotate entries that belong to the same multi-line message.
+
+        When the Hendrix_Localization plugin groups code-401 lines into a
+        single message block joined by ``\\n``, the translation API sees
+        the complete sentence.  We replicate this benefit by storing the
+        full message text in each entry's *context* field so backends can
+        use it for coherent translation.  For messages with ≥2 lines we
+        also add ``(line N/M)`` annotations.
+        """
+        if len(indices) < 2:
+            return
+        lines: List[str] = []
+        for idx in indices:
+            cmd = event_list[idx]
+            if isinstance(cmd, dict):
+                p = cmd.get("parameters", [])
+                if p and isinstance(p[0], str):
+                    lines.append(p[0])
+        full_msg = "\n".join(lines)
+        for line_no, idx in enumerate(indices, 1):
+            path = f"{base_path}[{idx}].parameters[0]"
+            # Find the already-added entry and enrich its context.
+            for entry in reversed(self._entries):
+                if entry.file == file and entry.path == path:
+                    entry.context = (
+                        f"{context} - Dialog (line {line_no}/{len(indices)}) "
+                        f"[full: {full_msg[:120]}]"
+                    )
+                    break
 
     # -- file-level extraction -----------------------------------------------
 
@@ -3277,6 +3351,214 @@ class RPGMakerTranslator:
 
         self._save()
         logger.info("Imported %d translations from CSV", imported)
+
+    # -- Hendrix_Localization CSV export ------------------------------------
+
+    def export_hendrix_csv(
+        self,
+        path: Optional[str] = None,
+        source_symbol: str = "",
+        target_symbol: str = "",
+        separator: str = ";",
+    ) -> Path:
+        """Export translations in Hendrix_Localization ``game_messages.csv`` format.
+
+        This enables non-destructive runtime translation via the
+        `Hendrix_Localization <https://sanghendrix.itch.io/>`_ plugin,
+        which reads a CSV file at boot and intercepts all game text.
+
+        The output CSV has columns:
+        ``Change ; Excluded ; Original ; <target_symbol> ; <source_symbol>``
+
+        Where *Original* contains the source language text, and the target
+        language column contains the translation.
+
+        The method groups consecutive dialog lines (code 401) that belong
+        to the same message (under one code 101 header) into a single row
+        joined by ``\\n``, matching the Hendrix plugin's extraction style.
+        It also inserts section headers ``[MapName]``, ``[Common Events]``,
+        ``[DATABASE ENTRIES]``, ``[TROOPS]`` etc.
+
+        Parameters
+        ----------
+        path : str, optional
+            Output file path.  Defaults to ``<game>/www/game_messages.csv``
+            (or ``<game>/game_messages.csv`` for MZ).
+        source_symbol : str
+            Language symbol for the source column (e.g. ``"ja"``).
+            Defaults to ``self.source_lang``.
+        target_symbol : str
+            Language symbol for the target column (e.g. ``"en"``).
+            Defaults to ``self.target_lang``.
+        separator : str
+            CSV field separator.  Hendrix defaults to ``;``.
+        """
+        if not self.project:
+            raise RuntimeError("No project loaded; run extract() first.")
+
+        src_sym = source_symbol or self.source_lang
+        tgt_sym = target_symbol or self.target_lang
+
+        # Determine output path.
+        if path:
+            out = Path(path)
+        else:
+            www = self.game_path / "www"
+            out = (www / "game_messages.csv") if www.exists() else (self.game_path / "game_messages.csv")
+
+        # Group entries by file for section headers.
+        entries_by_file: Dict[str, List[TranslationEntry]] = {}
+        for e in self.project.entries:
+            entries_by_file.setdefault(e.file, []).append(e)
+
+        # --- Hendrix CSV separator escaping ---
+        def _esc(text: str) -> str:
+            """Escape a field for the Hendrix CSV format."""
+            if not text:
+                return ""
+            if '"' in text or separator in text or '\n' in text or '\r' in text:
+                return '"' + text.replace('"', '""') + '"'
+            return text
+
+        # Build rows grouped by message blocks.
+        BOM = "\ufeff"
+        lines: List[str] = []
+        header = separator.join(["Change", "Excluded", "Original", tgt_sym, src_sym])
+        lines.append(BOM + header)
+
+        seen: Set[str] = set()
+
+        def _add_row(original: str, translated: str, source_text: str = "") -> None:
+            if not original or original in seen:
+                return
+            seen.add(original)
+            row = separator.join([
+                "",                 # Change column (empty)
+                "",                 # Excluded column (empty)
+                _esc(original),     # Original
+                _esc(translated),   # target language
+                _esc(source_text),  # source language (original if same lang)
+            ])
+            lines.append(row)
+
+        def _add_section(name: str) -> None:
+            lines.append(separator.join(["", "", _esc(f"\n[{name}]\n"), "", ""]))
+
+        # --- Group consecutive 401 lines into messages ---
+        def _process_file_entries(
+            entries: List[TranslationEntry],
+            section_name: str = "",
+        ) -> None:
+            if section_name:
+                _add_section(section_name)
+
+            # Group dialog lines that belong to the same message.
+            # Entries with "Dialog" in context and consecutive base paths
+            # are merged.
+            msg_buffer_orig: List[str] = []
+            msg_buffer_trans: List[str] = []
+            prev_base: str = ""
+
+            def _flush_msg() -> None:
+                nonlocal msg_buffer_orig, msg_buffer_trans
+                if msg_buffer_orig:
+                    full_orig = "\n".join(msg_buffer_orig)
+                    full_trans = "\n".join(msg_buffer_trans)
+                    _add_row(full_orig, full_trans)
+                    msg_buffer_orig = []
+                    msg_buffer_trans = []
+
+            for entry in entries:
+                # Determine if this entry is a dialog line that can be grouped.
+                is_dialog = (
+                    "Dialog" in entry.context
+                    and entry.entry_type in ("text", "escape_text")
+                    and ".parameters[0]" in entry.path
+                )
+                if is_dialog:
+                    # Extract the base path (everything before the [index])
+                    # to detect consecutive lines in the same event page.
+                    base = entry.path.rsplit("[", 1)[0] if "[" in entry.path else ""
+                    if msg_buffer_orig and base != prev_base:
+                        _flush_msg()
+                    msg_buffer_orig.append(entry.original)
+                    msg_buffer_trans.append(entry.translated or "")
+                    prev_base = base
+                else:
+                    _flush_msg()
+                    if entry.entry_type == "choice":
+                        _add_row(entry.original, entry.translated or "")
+                    elif entry.entry_type in ("picture", "movie"):
+                        _add_row(entry.original, entry.translated or "")
+                    else:
+                        _add_row(entry.original, entry.translated or "")
+
+            _flush_msg()
+
+        # --- Database files ---
+        db_files = [
+            "Actors.json", "Classes.json", "Skills.json", "Items.json",
+            "Weapons.json", "Armors.json", "Enemies.json", "States.json",
+        ]
+
+        # --- Map files ---
+        map_files = sorted(
+            f for f in entries_by_file
+            if f.startswith("Map") and f != "MapInfos.json"
+        )
+        for mf in map_files:
+            section = mf.replace(".json", "")
+            _process_file_entries(entries_by_file[mf], section)
+
+        # --- Common Events ---
+        if "CommonEvents.json" in entries_by_file:
+            _process_file_entries(entries_by_file["CommonEvents.json"], "Common Events")
+
+        # --- Database entries ---
+        _add_section("DATABASE ENTRIES")
+        if "System.json" in entries_by_file:
+            _add_section("GAME TITLE")
+            sys_entries = entries_by_file["System.json"]
+            title_entries = [e for e in sys_entries if "Game Title" in e.context]
+            _process_file_entries(title_entries)
+
+            for db_section in ["Actors", "Classes", "Skills", "Items", "Weapons", "Armors", "Enemies", "States"]:
+                fname = f"{db_section}.json"
+                if fname in entries_by_file:
+                    _add_section(db_section)
+                    _process_file_entries(entries_by_file[fname])
+
+            # Terms and messages
+            term_entries = [e for e in sys_entries if "Term" in e.context or "Message" in e.context]
+            if term_entries:
+                _add_section("Terms")
+                _process_file_entries(term_entries)
+
+            sys_msg_entries = [e for e in sys_entries if "Message " in e.context]
+            if sys_msg_entries:
+                _add_section("System Messages")
+                _process_file_entries(sys_msg_entries)
+
+        # --- Troops ---
+        if "Troops.json" in entries_by_file:
+            _process_file_entries(entries_by_file["Troops.json"], "TROOPS")
+
+        # --- Plugin parameters ---
+        if "plugins.js" in entries_by_file:
+            _process_file_entries(entries_by_file["plugins.js"], "PLUGIN PARAMETERS")
+
+        # --- Any remaining files ---
+        handled = set(map_files) | {"CommonEvents.json", "System.json", "Troops.json", "plugins.js", "MapInfos.json"}
+        handled.update(f"{d}.json" for d in ["Actors", "Classes", "Skills", "Items", "Weapons", "Armors", "Enemies", "States"])
+        for fname, entries in entries_by_file.items():
+            if fname not in handled:
+                _process_file_entries(entries, fname)
+
+        content = "\n".join(lines) + "\n"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(content, encoding="utf-8")
+        logger.info("Hendrix CSV exported → %s  (%d rows)", out, len(lines) - 1)
+        return out
 
     # -- stats ---------------------------------------------------------------
 

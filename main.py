@@ -151,11 +151,17 @@ class GameInfo:
             "YEP_MessageCore.js",
             "SRD_TranslationEngine.js",
             "GALV_MessageBusts.js",
+            "Hendrix_Localization.js",
         ]
         return [
             p.replace(".js", "") for p in known
             if (self.js_path / p).exists()
         ]
+
+    @property
+    def has_hendrix_localization(self) -> bool:
+        """True if the game uses the Hendrix_Localization plugin."""
+        return "Hendrix_Localization" in self.detected_plugins
 
     def _check_encrypted(self) -> bool:
         if self.img_path.exists():
@@ -348,6 +354,8 @@ class TranslationPipeline:
             logger.info("  Encrypted: yes (.rpgmvp)")
         if self.game.detected_plugins:
             logger.info("  Plugins: %s", ", ".join(self.game.detected_plugins))
+        if self.game.has_hendrix_localization:
+            logger.info("  Hendrix_Localization: detected (supports --hendrix-csv)")
         logger.info("=" * 60)
 
     def _summary(self) -> None:
@@ -387,6 +395,7 @@ examples:
   python main.py /path/to/game --no-images        # text only
   python main.py /path/to/game --export-only      # CSV for manual editing
   python main.py /path/to/game --import-csv       # apply edited CSV
+  python main.py /path/to/game --hendrix-csv      # Hendrix_Localization CSV
   python main.py /path/to/game --backend deepl --api-key KEY
   python main.py /path/to/game --backend marian   # offline, unlimited
 
@@ -440,6 +449,9 @@ supported languages:
                         help="Export glossary to CSV for editing")
     parser.add_argument("--import-glossary",
                         help="Import glossary terms from a CSV file")
+    parser.add_argument("--hendrix-csv", action="store_true",
+                        help="Export translations as Hendrix_Localization game_messages.csv "
+                             "(non-destructive runtime translation)")
     parser.add_argument("--batch-size", type=int, default=50,
                         help="Strings per translation batch (default: 50)")
     parser.add_argument("--delay", type=float, default=0.5,
@@ -558,6 +570,46 @@ supported languages:
             return 0
         except Exception as exc:
             logger.error("CSV import failed: %s", exc)
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            return 1
+
+    # -- Hendrix CSV export mode ---------------------------------------------
+    if args.hendrix_csv:
+        try:
+            from rpgmaker_translator import RPGMakerTranslator
+
+            translator = RPGMakerTranslator(
+                game_path=args.game_path,
+                source_lang=args.source,
+                target_lang=args.target,
+                backend=args.backend,
+                api_key=args.api_key,
+                glossary_path=args.glossary,
+            )
+            # Ensure project is extracted.
+            translator.extract()
+            csv_path = translator.export_hendrix_csv(
+                source_symbol=args.source,
+                target_symbol=args.target,
+            )
+            game = GameInfo(args.game_path)
+            if game.has_hendrix_localization:
+                logger.info(
+                    "Hendrix_Localization detected!  CSV written to game folder.\n"
+                    "  The game will use translations automatically at runtime."
+                )
+            else:
+                logger.info(
+                    "Hendrix CSV exported.  To use it:\n"
+                    "  1. Install Hendrix_Localization.js into your game\n"
+                    "  2. Place game_messages.csv in the www/ folder\n"
+                    "  3. Configure languages in plugin parameters"
+                )
+            return 0
+        except Exception as exc:
+            logger.error("Hendrix CSV export failed: %s", exc)
             if args.verbose:
                 import traceback
                 traceback.print_exc()
